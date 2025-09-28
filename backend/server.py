@@ -125,6 +125,10 @@ def calculate_complexity_multiplier(complexity: str) -> float:
 
 # Routes
 
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to 3D Printing Service API!"}
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
