@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,22 +17,42 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
 
+// Переменная окружения
 const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-export default function UploadScreen() {
+// Интерфейсы
+interface ModelData {
+  name: string;
+  description: string;
+  category: string;
+  material_type: string;
+  estimated_print_time: string;
+  price: string;
+  is_public: boolean;
+}
+
+interface SelectedFile {
+  uri: string;
+  name: string;
+  size?: number;
+  format: string;
+}
+
+export default function UploadScreen(): JSX.Element {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<any>(null);
-  const [modelData, setModelData] = useState({
+  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+  const [modelData, setModelData] = useState<ModelData>({
     name: '',
     description: '',
     category: 'Декор',
     material_type: 'PLA',
     estimated_print_time: '2',
     price: '',
-    is_public: true
+    is_public: true,
   });
 
+  // Списки для Picker
   const categories = [
     'Игрушки',
     'Декор',
@@ -42,7 +62,7 @@ export default function UploadScreen() {
     'Прототипы',
     'Образование',
     'Медицина',
-    'Другое'
+    'Другое',
   ];
 
   const materialTypes = [
@@ -51,81 +71,55 @@ export default function UploadScreen() {
     { label: 'PETG - Полиэтиленгликоль', value: 'PETG' },
     { label: 'TPU - Термополиуретан', value: 'TPU' },
     { label: 'Wood - Дерево', value: 'Wood' },
-    { label: 'Metal - Металл', value: 'Metal' }
+    { label: 'Metal - Металл', value: 'Metal' },
   ];
 
-  const handleInputChange = (field: string, value: string) => {
+  // Обработчик изменения формы
+  const handleInputChange = useCallback((field: keyof ModelData, value: string | boolean): void => {
     setModelData(prev => ({ ...prev, [field]: value }));
-  };
+  }, []);
 
-  const pickFile = async () => {
+  // Выбор файла
+  const pickFile = async (): Promise<void> => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
         copyToCacheDirectory: true,
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const file = result.assets[0];
-        
-        // Check file format
-        const supportedFormats = ['.stl', '.obj', '.3mf', '.gcode', '.ply'];
-        const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-        
+      if (result.type === 'success') {
+        const file = result;
+        const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
+        const supportedFormats = ['stl', 'obj', '3mf', 'gcode', 'ply'];
+
         if (!supportedFormats.includes(fileExtension)) {
-          Alert.alert(
-            'Неподдерживаемый формат',
-            'Поддерживаются форматы: STL, OBJ, 3MF, GCODE, PLY'
-          );
+          Alert.alert('Ошибка', 'Поддерживаются форматы: STL, OBJ, 3MF, GCODE, PLY');
           return;
         }
 
-        // Check file size (limit to 50MB)
         if (file.size && file.size > 50 * 1024 * 1024) {
           Alert.alert('Ошибка', 'Размер файла не должен превышать 50MB');
           return;
         }
 
         setSelectedFile({
-          ...file,
-          format: fileExtension.replace('.', '').toUpperCase()
+          uri: file.uri,
+          name: file.name,
+          size: file.size,
+          format: fileExtension.toUpperCase(),
         });
 
-        // Auto-fill name if empty
         if (!modelData.name) {
-          const nameWithoutExtension = file.name.replace(fileExtension, '');
-          handleInputChange('name', nameWithoutExtension);
+          handleInputChange('name', file.name.replace(`.${fileExtension}`, ''));
         }
       }
-    } catch (error) {
-      console.error('File picker error:', error);
+    } catch {
       Alert.alert('Ошибка', 'Не удалось выбрать файл');
     }
   };
 
-  const convertFileToBase64 = async (fileUri: string): Promise<string> => {
-    try {
-      // For Expo, we need to read the file as base64
-      const response = await fetch(fileUri);
-      const blob = await response.blob();
-      
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const base64 = reader.result as string;
-          // Remove data:mime;base64, prefix if present
-          const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-          resolve(base64Data);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch (error) {
-      throw new Error('Не удалось прочитать файл');
-    }
-  };
-
-  const validateForm = () => {
+  // Валидация формы
+  const validateForm = (): boolean => {
     if (!modelData.name.trim()) {
       Alert.alert('Ошибка', 'Введите название модели');
       return false;
@@ -138,24 +132,23 @@ export default function UploadScreen() {
       Alert.alert('Ошибка', 'Выберите файл 3D модели');
       return false;
     }
-    const printTime = parseFloat(modelData.estimated_print_time);
-    if (printTime <= 0 || printTime > 100) {
-      Alert.alert('Ошибка', 'Время печати должно быть от 0.1 до 100 часов');
+    const printTime = Number.parseFloat(modelData.estimated_print_time);
+    if (isNaN(printTime) || printTime <= 0 || printTime > 100) {
+      Alert.alert('Ошибка', 'Время печати должно быть числом от 0.1 до 100 часов');
       return false;
     }
-    if (modelData.price && parseFloat(modelData.price) < 0) {
+    if (modelData.price && Number.parseFloat(modelData.price) < 0) {
       Alert.alert('Ошибка', 'Цена не может быть отрицательной');
       return false;
     }
     return true;
   };
 
-  const uploadModel = async () => {
+  // Загрузка на сервер
+  const uploadModel = async (): Promise<void> => {
     if (!validateForm()) return;
-
     setLoading(true);
     try {
-      // Check if user is logged in
       const token = await AsyncStorage.getItem('auth_token');
       if (!token) {
         Alert.alert('Ошибка', 'Необходимо войти в аккаунт');
@@ -163,50 +156,37 @@ export default function UploadScreen() {
         return;
       }
 
-      // Convert file to base64
-      const fileBase64 = await convertFileToBase64(selectedFile.uri);
-
-      const payload = {
-        name: modelData.name.trim(),
-        description: modelData.description.trim(),
-        category: modelData.category,
-        material_type: modelData.material_type,
-        estimated_print_time: parseInt(modelData.estimated_print_time),
-        file_data: fileBase64,
-        file_format: selectedFile.format.toLowerCase(),
-        price: modelData.price ? parseFloat(modelData.price) : null,
-        is_public: modelData.is_public
-      };
+      const formData = new FormData();
+      formData.append('file', {
+        uri: selectedFile!.uri,
+        name: selectedFile!.name,
+        type: `model/${selectedFile!.format.toLowerCase()}`,
+      });
+      formData.append('name', modelData.name.trim());
+      formData.append('description', modelData.description.trim());
+      formData.append('category', modelData.category);
+      formData.append('material_type', modelData.material_type);
+      formData.append('estimated_print_time', modelData.estimated_print_time);
+      formData.append('price', modelData.price || '0');
+      formData.append('is_public', String(modelData.is_public));
 
       const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/models/upload`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(payload),
+        body: formData,
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        Alert.alert(
-          'Успешно!',
-          `Модель загружена! Получено ${data.points_earned} баллов`,
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                router.back();
-              },
-            },
-          ]
-        );
+        Alert.alert('Успех', 'Модель успешно загружена!');
+        router.push('/catalog');
       } else {
         Alert.alert('Ошибка', data.detail || 'Не удалось загрузить модель');
       }
-    } catch (error) {
-      console.error('Upload error:', error);
+    } catch {
       Alert.alert('Ошибка', 'Проблема с сетью. Попробуйте позже.');
     } finally {
       setLoading(false);
@@ -215,92 +195,70 @@ export default function UploadScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <MaterialIcons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Загрузить 3D модель</Text>
-        </View>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+              <MaterialIcons name="arrow-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Загрузить 3D модель</Text>
+          </View>
 
-        <ScrollView 
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
           <View style={styles.formContainer}>
-            <Text style={styles.sectionTitle}>Информация о модели</Text>
+            <Text style={styles.sectionTitle}>Добавление модели</Text>
 
-            {/* File Picker */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Файл 3D модели</Text>
-              <TouchableOpacity 
-                style={styles.filePicker}
-                onPress={pickFile}
-              >
-                <MaterialIcons 
-                  name={selectedFile ? "check-circle" : "cloud-upload"} 
-                  size={24} 
-                  color={selectedFile ? "#00d4ff" : "#666"} 
-                />
+              <Text style={styles.inputLabel}>Файл модели</Text>
+              <TouchableOpacity style={styles.filePicker} onPress={pickFile}>
+                <MaterialIcons name="attach-file" size={24} color="#666" />
                 <View style={styles.filePickerText}>
-                  <Text style={[styles.filePickerLabel, selectedFile && styles.filePickerLabelSelected]}>
-                    {selectedFile ? selectedFile.name : 'Выберите файл'}
+                  <Text
+                    style={[styles.filePickerLabel, selectedFile && styles.filePickerLabelSelected]}
+                  >
+                    {selectedFile ? selectedFile.name : 'Выберите файл модели'}
                   </Text>
                   {selectedFile && (
-                    <Text style={styles.filePickerFormat}>
-                      {selectedFile.format} • {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                    </Text>
+                    <Text style={styles.filePickerFormat}>{selectedFile.format}</Text>
                   )}
-                  {!selectedFile && (
-                    <Text style={styles.filePickerHint}>
-                      Поддержка: STL, OBJ, 3MF, GCODE, PLY
-                    </Text>
-                  )}
+                  <Text style={styles.filePickerHint}>Форматы: STL, OBJ, 3MF, GCODE, PLY</Text>
                 </View>
               </TouchableOpacity>
             </View>
 
-            {/* Model Name */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Название модели *</Text>
+              <Text style={styles.inputLabel}>Название модели</Text>
               <View style={styles.inputContainer}>
                 <MaterialIcons name="title" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
+                  placeholder="Название модели"
+                  placeholderTextColor="#666"
                   value={modelData.name}
                   onChangeText={(value) => handleInputChange('name', value)}
-                  placeholder="Например: Декоративная ваза"
-                  placeholderTextColor="#666"
+                  maxLength={100}
                 />
               </View>
             </View>
 
-            {/* Model Description */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Описание модели *</Text>
+              <Text style={styles.inputLabel}>Описание</Text>
               <View style={styles.textAreaContainer}>
                 <TextInput
                   style={styles.textArea}
+                  placeholder="Опишите вашу модель"
+                  placeholderTextColor="#666"
                   value={modelData.description}
                   onChangeText={(value) => handleInputChange('description', value)}
-                  placeholder="Опишите вашу модель: назначение, особенности, инструкции по печати..."
-                  placeholderTextColor="#666"
                   multiline
                   numberOfLines={4}
-                  textAlignVertical="top"
+                  maxLength={500}
                 />
               </View>
             </View>
 
-            {/* Category */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Категория</Text>
               <View style={styles.pickerContainer}>
@@ -311,9 +269,9 @@ export default function UploadScreen() {
                   dropdownIconColor="#666"
                 >
                   {categories.map((category) => (
-                    <Picker.Item 
-                      key={category} 
-                      label={category} 
+                    <Picker.Item
+                      key={category}
+                      label={category}
                       value={category}
                       color="#fff"
                     />
@@ -322,9 +280,8 @@ export default function UploadScreen() {
               </View>
             </View>
 
-            {/* Material Type */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Рекомендуемый материал</Text>
+              <Text style={styles.inputLabel}>Тип материала</Text>
               <View style={styles.pickerContainer}>
                 <Picker
                   selectedValue={modelData.material_type}
@@ -333,9 +290,9 @@ export default function UploadScreen() {
                   dropdownIconColor="#666"
                 >
                   {materialTypes.map((material) => (
-                    <Picker.Item 
-                      key={material.value} 
-                      label={material.label} 
+                    <Picker.Item
+                      key={material.value}
+                      label={material.label}
                       value={material.value}
                       color="#fff"
                     />
@@ -344,59 +301,57 @@ export default function UploadScreen() {
               </View>
             </View>
 
-            {/* Print Time */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Примерное время печати (часы)</Text>
+              <Text style={styles.inputLabel}>Время печати (часы)</Text>
               <View style={styles.inputContainer}>
                 <MaterialIcons name="schedule" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
+                  placeholder="2"
+                  placeholderTextColor="#666"
                   value={modelData.estimated_print_time}
                   onChangeText={(value) => handleInputChange('estimated_print_time', value)}
-                  keyboardType="decimal-pad"
-                  placeholder="2.5"
-                  placeholderTextColor="#666"
+                  keyboardType="numeric"
                 />
               </View>
             </View>
 
-            {/* Price (Optional) */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Цена модели (необязательно)</Text>
+              <Text style={styles.inputLabel}>Цена (₽, опционально)</Text>
               <View style={styles.inputContainer}>
                 <MaterialIcons name="attach-money" size={20} color="#666" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
+                  placeholder="0"
+                  placeholderTextColor="#666"
                   value={modelData.price}
                   onChangeText={(value) => handleInputChange('price', value)}
-                  keyboardType="decimal-pad"
-                  placeholder="Оставьте пустым для бесплатной модели"
-                  placeholderTextColor="#666"
+                  keyboardType="numeric"
                 />
                 <Text style={styles.currencyLabel}>₽</Text>
               </View>
             </View>
 
-            {/* Public/Private Toggle */}
             <View style={styles.inputGroup}>
               <View style={styles.toggleContainer}>
                 <View style={styles.toggleInfo}>
                   <Text style={styles.toggleLabel}>Публичная модель</Text>
                   <Text style={styles.toggleDescription}>
-                    Модель будет доступна всем пользователям в каталоге
+                    Доступна для всех пользователей в каталоге
                   </Text>
                 </View>
                 <TouchableOpacity
                   style={[styles.toggle, modelData.is_public && styles.toggleActive]}
-                  onPress={() => handleInputChange('is_public', (!modelData.is_public).toString())}
+                  onPress={() => handleInputChange('is_public', !modelData.is_public)}
                 >
-                  <View style={[styles.toggleThumb, modelData.is_public && styles.toggleThumbActive]} />
+                  <View
+                    style={[styles.toggleThumb, modelData.is_public && styles.toggleThumbActive]}
+                  />
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Upload Button */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.uploadButton, loading && styles.uploadButtonDisabled]}
               onPress={uploadModel}
               disabled={loading}
@@ -407,7 +362,6 @@ export default function UploadScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Info */}
             <View style={styles.infoContainer}>
               <MaterialIcons name="info" size={20} color="#666" />
               <Text style={styles.infoText}>

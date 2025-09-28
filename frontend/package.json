@@ -24,6 +24,7 @@
     "expo-blur": "~14.1.5",
     "expo-constants": "~17.1.7",
     "expo-document-picker": "^14.0.7",
+    "expo-file-system": "~19.0.15",
     "expo-font": "~13.3.2",
     "expo-gl": "^16.0.7",
     "expo-gl-cpp": "^11.4.0",
@@ -52,10 +53,15 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@eslint/js": "^9.36.0",
+    "@react-native/eslint-config": "^0.81.1",
     "@types/react": "~19.0.10",
-    "eslint": "^9.25.0",
+    "eslint": "^9.36.0",
     "eslint-config-expo": "~9.2.0",
-    "typescript": "~5.8.3"
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^16.4.0",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.44.1"
   },
   "private": true,
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
