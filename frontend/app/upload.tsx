@@ -34,7 +34,7 @@ interface ModelData {
 // Типизация для selectedFile (устраняет ошибки ts(2339) для name, size, uri)
 type SelectedFile = DocumentPicker.DocumentPickerAsset | null;
 
-export default function UploadScreen(): JSX.Element {
+export default function UploadScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<SelectedFile>(null);

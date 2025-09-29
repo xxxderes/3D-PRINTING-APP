@@ -7,7 +7,8 @@ export default function Index() {
   const router = useRouter();
 
   const navigateToHome = () => {
-    router.push('/screens/HomeScreen');
+    // ✅ правильный путь — файл app/home.tsx (или app/home/index.tsx)
+    router.push('/home');
   };
 
   return (

@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 
-// Интерфейс для типизации user (устраняет ошибки ts(2339))
+// Интерфейс для типизации user
 interface User {
   name: string;
   points: number;
@@ -14,7 +14,6 @@ interface User {
 
 export default function HomeScreen() {
   const router = useRouter();
-  // Типизация user: User | null (устраняет never и ts(2339))
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,7 +25,6 @@ export default function HomeScreen() {
     try {
       const userData = await AsyncStorage.getItem('user_data');
       if (userData) {
-        // Типизация при парсинге: User | null
         const parsedUser: User | null = JSON.parse(userData);
         setUser(parsedUser);
       }
@@ -38,8 +36,7 @@ export default function HomeScreen() {
   };
 
   const navigateToScreen = (screen: string) => {
-    // Улучшено: типизированные маршруты без as any
-    router.push(`/screens/${screen}`);
+    router.push(`/${screen}`);
   };
 
   if (loading) {

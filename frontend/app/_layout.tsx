@@ -8,7 +8,7 @@ export default function RootLayout() {
         headerStyle: styles.header,
         headerTintColor: '#fff',
         headerTitleStyle: styles.headerTitle,
-        headerBackVisible: true, // Исправлено: вместо headerBackTitleVisible
+        headerBackVisible: true
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
