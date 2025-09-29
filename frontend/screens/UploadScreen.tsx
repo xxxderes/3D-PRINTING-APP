@@ -31,17 +31,13 @@ interface ModelData {
   is_public: boolean;
 }
 
-interface SelectedFile {
-  uri: string;
-  name: string;
-  size?: number;
-  format: string;
-}
+// Типизация для selectedFile (устраняет ошибки ts(2339) для name, size, uri)
+type SelectedFile = DocumentPicker.DocumentPickerAsset | null;
 
 export default function UploadScreen(): JSX.Element {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
+  const [selectedFile, setSelectedFile] = useState<SelectedFile>(null);
   const [modelData, setModelData] = useState<ModelData>({
     name: '',
     description: '',
@@ -79,7 +75,7 @@ export default function UploadScreen(): JSX.Element {
     setModelData(prev => ({ ...prev, [field]: value }));
   }, []);
 
-  // Выбор файла
+  // Выбор файла (исправлено: !result.canceled, result.assets[0] — устраняет ts(2339) для type, name, size, uri)
   const pickFile = async (): Promise<void> => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -87,9 +83,9 @@ export default function UploadScreen(): JSX.Element {
         copyToCacheDirectory: true,
       });
 
-      if (result.type === 'success') {
-        const file = result;
-        const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
+      if (!result.canceled) { // Изменено: вместо result.type === 'success'
+        const fileAsset = result.assets[0]; // Доступ к assets[0]
+        const fileExtension = fileAsset.name.split('.').pop()?.toLowerCase() || '';
         const supportedFormats = ['stl', 'obj', '3mf', 'gcode', 'ply'];
 
         if (!supportedFormats.includes(fileExtension)) {
@@ -97,20 +93,15 @@ export default function UploadScreen(): JSX.Element {
           return;
         }
 
-        if (file.size && file.size > 50 * 1024 * 1024) {
+        if (fileAsset.size && fileAsset.size > 50 * 1024 * 1024) { // fileAsset.size вместо file.size
           Alert.alert('Ошибка', 'Размер файла не должен превышать 50MB');
           return;
         }
 
-        setSelectedFile({
-          uri: file.uri,
-          name: file.name,
-          size: file.size,
-          format: fileExtension.toUpperCase(),
-        });
+        setSelectedFile(fileAsset); // Сохраняем asset
 
         if (!modelData.name) {
-          handleInputChange('name', file.name.replace(`.${fileExtension}`, ''));
+          handleInputChange('name', fileAsset.name.replace(`.${fileExtension}`, '')); // fileAsset.name вместо file.name
         }
       }
     } catch {
@@ -128,7 +119,7 @@ export default function UploadScreen(): JSX.Element {
       Alert.alert('Ошибка', 'Введите описание модели');
       return false;
     }
-    if (!selectedFile) {
+    if (!selectedFile) { // selectedFile — SelectedFile | null
       Alert.alert('Ошибка', 'Выберите файл 3D модели');
       return false;
     }
@@ -144,7 +135,7 @@ export default function UploadScreen(): JSX.Element {
     return true;
   };
 
-  // Загрузка на сервер
+  // Загрузка на сервер (исправлено FormData.append — устраняет ts(2769))
   const uploadModel = async (): Promise<void> => {
     if (!validateForm()) return;
     setLoading(true);
@@ -158,10 +149,10 @@ export default function UploadScreen(): JSX.Element {
 
       const formData = new FormData();
       formData.append('file', {
-        uri: selectedFile!.uri,
+        uri: selectedFile!.uri, // selectedFile.uri (безопасно, так как проверено в validateForm)
         name: selectedFile!.name,
-        type: `model/${selectedFile!.format.toLowerCase()}`,
-      });
+        type: `model/${selectedFile!.name.split('.').pop()?.toLowerCase() || 'unknown'}`,
+      } as any); // Временный as any для совместимости с FormData в Expo
       formData.append('name', modelData.name.trim());
       formData.append('description', modelData.description.trim());
       formData.append('category', modelData.category);
@@ -221,7 +212,7 @@ export default function UploadScreen(): JSX.Element {
                     {selectedFile ? selectedFile.name : 'Выберите файл модели'}
                   </Text>
                   {selectedFile && (
-                    <Text style={styles.filePickerFormat}>{selectedFile.format}</Text>
+                    <Text style={styles.filePickerFormat}>{selectedFile.name.split('.').pop()?.toUpperCase()}</Text>
                   )}
                   <Text style={styles.filePickerHint}>Форматы: STL, OBJ, 3MF, GCODE, PLY</Text>
                 </View>
