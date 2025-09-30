@@ -15,7 +15,7 @@ import { Picker } from '@react-native-picker/picker';
 
 const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-// Интерфейсы для типизации result (устраняет ошибки ts(2339))
+// Типы для ответа сервера
 interface Breakdown {
   electricity_cost: number;
   material_cost: number;
@@ -44,9 +44,8 @@ export default function CalculatorScreen() {
     electricity_cost_per_hour: '5.0',
     model_complexity: 'medium',
     infill_percentage: '20',
-    layer_height: '0.2'
+    layer_height: '0.2',
   });
-  // Типизация result: CalculationResult | null (устраняет never и ts(2339))
   const [result, setResult] = useState<CalculationResult | null>(null);
 
   const materialTypes = [
@@ -55,17 +54,17 @@ export default function CalculatorScreen() {
     { label: 'PETG - Полиэтиленгликоль', value: 'PETG' },
     { label: 'TPU - Термополиуретан (гибкий)', value: 'TPU' },
     { label: 'Wood - Дерево', value: 'Wood' },
-    { label: 'Metal - Металл', value: 'Metal' }
+    { label: 'Metal - Металл', value: 'Metal' },
   ];
 
   const complexityLevels = [
     { label: 'Простая - базовые формы', value: 'simple' },
     { label: 'Средняя - детали и углы', value: 'medium' },
-    { label: 'Сложная - мелкие детали', value: 'complex' }
+    { label: 'Сложная - мелкие детали', value: 'complex' },
   ];
 
   const handleInputChange = (field: string, value: string) => {
-    setCalculation(prev => ({ ...prev, [field]: value }));
+    setCalculation((prev) => ({ ...prev, [field]: value }));
   };
 
   const validateInputs = () => {
@@ -104,24 +103,22 @@ export default function CalculatorScreen() {
         electricity_cost_per_hour: parseFloat(calculation.electricity_cost_per_hour),
         model_complexity: calculation.model_complexity,
         infill_percentage: parseInt(calculation.infill_percentage),
-        layer_height: parseFloat(calculation.layer_height)
+        layer_height: parseFloat(calculation.layer_height),
       };
 
       const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/calculator/estimate`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data: unknown = await response.json();
 
       if (response.ok) {
-        // Типизация data как CalculationResult
-        setResult(data);
+        setResult(data as CalculationResult);
       } else {
-        Alert.alert('Ошибка', data.detail || 'Не удалось рассчитать стоимость');
+        const errorData = data as { detail?: string };
+        Alert.alert('Ошибка', errorData.detail || 'Не удалось рассчитать стоимость');
       }
     } catch (error) {
       console.error('Calculation error:', error);
@@ -135,10 +132,7 @@ export default function CalculatorScreen() {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <MaterialIcons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Калькулятор стоимости</Text>
@@ -159,12 +153,7 @@ export default function CalculatorScreen() {
                 dropdownIconColor="#666"
               >
                 {materialTypes.map((material) => (
-                  <Picker.Item 
-                    key={material.value} 
-                    label={material.label} 
-                    value={material.value}
-                    color="#fff"
-                  />
+                  <Picker.Item key={material.value} label={material.label} value={material.value} color="#fff" />
                 ))}
               </Picker>
             </View>
@@ -213,12 +202,7 @@ export default function CalculatorScreen() {
                 dropdownIconColor="#666"
               >
                 {complexityLevels.map((level) => (
-                  <Picker.Item 
-                    key={level.value} 
-                    label={level.label} 
-                    value={level.value}
-                    color="#fff"
-                  />
+                  <Picker.Item key={level.value} label={level.label} value={level.value} color="#fff" />
                 ))}
               </Picker>
             </View>
@@ -257,57 +241,55 @@ export default function CalculatorScreen() {
           </View>
 
           {/* Calculate Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.calculateButton, loading && styles.calculateButtonDisabled]}
             onPress={calculatePrice}
             disabled={loading}
           >
             <MaterialIcons name="calculate" size={24} color="#000" />
-            <Text style={styles.calculateButtonText}>
-              {loading ? 'Расчёт...' : 'Рассчитать стоимость'}
-            </Text>
+            <Text style={styles.calculateButtonText}>{loading ? 'Расчёт...' : 'Рассчитать стоимость'}</Text>
           </TouchableOpacity>
 
           {/* Results */}
           {result && (
             <View style={styles.resultsContainer}>
               <Text style={styles.resultsTitle}>Результат расчёта</Text>
-              
+
               <View style={styles.resultCard}>
                 <View style={styles.totalPriceContainer}>
                   <Text style={styles.totalPriceLabel}>Общая стоимость:</Text>
                   <Text style={styles.totalPrice}>{result.total_cost_rub} ₽</Text>
                 </View>
-                
+
                 <View style={styles.breakdownContainer}>
                   <Text style={styles.breakdownTitle}>Детализация:</Text>
-                  
+
                   <View style={styles.breakdownItem}>
                     <Text style={styles.breakdownLabel}>Электричество:</Text>
                     <Text style={styles.breakdownValue}>{result.breakdown.electricity_cost} ₽</Text>
                   </View>
-                  
+
                   <View style={styles.breakdownItem}>
                     <Text style={styles.breakdownLabel}>Материал:</Text>
                     <Text style={styles.breakdownValue}>{result.breakdown.material_cost} ₽</Text>
                   </View>
-                  
+
                   <View style={styles.breakdownItem}>
                     <Text style={styles.breakdownLabel}>Сервис (30%):</Text>
                     <Text style={styles.breakdownValue}>{result.breakdown.service_fee} ₽</Text>
                   </View>
-                  
+
                   <View style={styles.breakdownItem}>
                     <Text style={styles.breakdownLabel}>Объём материала:</Text>
                     <Text style={styles.breakdownValue}>{result.breakdown.material_volume_cm3} см³</Text>
                   </View>
-                  
+
                   <View style={styles.breakdownItem}>
                     <Text style={styles.breakdownLabel}>Коэффициент сложности:</Text>
                     <Text style={styles.breakdownValue}>×{result.breakdown.complexity_multiplier}</Text>
                   </View>
                 </View>
-                
+
                 <View style={styles.estimationContainer}>
                   <Text style={styles.estimationTitle}>Время выполнения:</Text>
                   <Text style={styles.estimationText}>
@@ -324,10 +306,7 @@ export default function CalculatorScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
+  container: { flex: 1, backgroundColor: '#0a0a0a' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -337,40 +316,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
-  backButton: {
-    padding: 8,
-    marginRight: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 32,
-  },
-  formContainer: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 8,
-  },
+  backButton: { padding: 8, marginRight: 16 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
+  scrollView: { flex: 1 },
+  scrollContent: { paddingBottom: 32 },
+  formContainer: { padding: 20 },
+  sectionTitle: { fontSize: 24, fontWeight: 'bold', color: '#fff', marginBottom: 24, textAlign: 'center' },
+  inputGroup: { marginBottom: 20 },
+  inputLabel: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 8 },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -380,25 +333,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    height: 56,
-    color: '#fff',
-    fontSize: 16,
-  },
-  pickerContainer: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  picker: {
-    height: 56,
-    color: '#fff',
-  },
+  inputIcon: { marginRight: 12 },
+  input: { flex: 1, height: 56, color: '#fff', fontSize: 16 },
+  pickerContainer: { backgroundColor: '#1a1a1a', borderRadius: 12, borderWidth: 1, borderColor: '#333' },
+  picker: { height: 56, color: '#fff' },
   calculateButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -408,25 +346,10 @@ const styles = StyleSheet.create({
     height: 56,
     marginTop: 24,
   },
-  calculateButtonDisabled: {
-    opacity: 0.6,
-  },
-  calculateButtonText: {
-    color: '#000',
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  resultsContainer: {
-    marginTop: 32,
-  },
-  resultsTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
+  calculateButtonDisabled: { opacity: 0.6 },
+  calculateButtonText: { color: '#000', fontSize: 18, fontWeight: '600', marginLeft: 8 },
+  resultsContainer: { marginTop: 32 },
+  resultsTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff', marginBottom: 16, textAlign: 'center' },
   resultCard: {
     backgroundColor: '#1a1a1a',
     borderRadius: 16,
@@ -443,53 +366,14 @@ const styles = StyleSheet.create({
     borderBottomColor: '#333',
     marginBottom: 16,
   },
-  totalPriceLabel: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  totalPrice: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#00d4ff',
-  },
-  breakdownContainer: {
-    marginBottom: 16,
-  },
-  breakdownTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 12,
-  },
-  breakdownItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-  },
-  breakdownLabel: {
-    fontSize: 14,
-    color: '#888',
-  },
-  breakdownValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  estimationContainer: {
-    backgroundColor: '#2a2a2a',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
-  },
-  estimationTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 4,
-  },
-  estimationText: {
-    fontSize: 14,
-    color: '#00d4ff',
-  },
+  totalPriceLabel: { fontSize: 18, fontWeight: '600', color: '#fff' },
+  totalPrice: { fontSize: 24, fontWeight: 'bold', color: '#00d4ff' },
+  breakdownContainer: { marginBottom: 16 },
+  breakdownTitle: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 12 },
+  breakdownItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
+  breakdownLabel: { fontSize: 14, color: '#888' },
+  breakdownValue: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  estimationContainer: { backgroundColor: '#2a2a2a', borderRadius: 12, padding: 16, marginTop: 8 },
+  estimationTitle: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 4 },
+  estimationText: { fontSize: 14, color: '#00d4ff' },
 });

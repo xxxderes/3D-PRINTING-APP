@@ -31,13 +31,17 @@ interface ModelData {
   is_public: boolean;
 }
 
-// Типизация для selectedFile (устраняет ошибки ts(2339) для name, size, uri)
-type SelectedFile = DocumentPicker.DocumentPickerAsset | null;
+interface SelectedFile {
+  uri: string;
+  name: string;
+  size?: number;
+  format: string;
+}
 
-export default function UploadScreen() {
+export default function UploadScreen() { // Убрано : JSX.Element — фикс TS2503
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<SelectedFile>(null);
+  const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [modelData, setModelData] = useState<ModelData>({
     name: '',
     description: '',
@@ -98,7 +102,12 @@ export default function UploadScreen() {
           return;
         }
 
-        setSelectedFile(fileAsset); // Сохраняем asset
+        setSelectedFile({
+          uri: fileAsset.uri, // fileAsset.uri вместо file.uri
+          name: fileAsset.name, // fileAsset.name вместо file.name
+          size: fileAsset.size, // fileAsset.size вместо file.size
+          format: fileExtension.toUpperCase(),
+        });
 
         if (!modelData.name) {
           handleInputChange('name', fileAsset.name.replace(`.${fileExtension}`, '')); // fileAsset.name вместо file.name
@@ -119,7 +128,7 @@ export default function UploadScreen() {
       Alert.alert('Ошибка', 'Введите описание модели');
       return false;
     }
-    if (!selectedFile) { // selectedFile — SelectedFile | null
+    if (!selectedFile) {
       Alert.alert('Ошибка', 'Выберите файл 3D модели');
       return false;
     }
@@ -149,10 +158,10 @@ export default function UploadScreen() {
 
       const formData = new FormData();
       formData.append('file', {
-        uri: selectedFile!.uri, // selectedFile.uri (безопасно, так как проверено в validateForm)
+        uri: selectedFile!.uri,
         name: selectedFile!.name,
-        type: `model/${selectedFile!.name.split('.').pop()?.toLowerCase() || 'unknown'}`,
-      } as any); // Временный as any для совместимости с FormData в Expo
+        type: `model/${selectedFile!.format.toLowerCase()}`,
+      } as any); // Добавлено as any — фикс ts(2769)
       formData.append('name', modelData.name.trim());
       formData.append('description', modelData.description.trim());
       formData.append('category', modelData.category);
@@ -212,7 +221,7 @@ export default function UploadScreen() {
                     {selectedFile ? selectedFile.name : 'Выберите файл модели'}
                   </Text>
                   {selectedFile && (
-                    <Text style={styles.filePickerFormat}>{selectedFile.name.split('.').pop()?.toUpperCase()}</Text>
+                    <Text style={styles.filePickerFormat}>{selectedFile.format}</Text>
                   )}
                   <Text style={styles.filePickerHint}>Форматы: STL, OBJ, 3MF, GCODE, PLY</Text>
                 </View>
