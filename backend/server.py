@@ -200,12 +200,35 @@ async def upload_model(
     current_user: dict = Depends(verify_token),
 ):
     try:
+        # --- DEBUG LOGS ---
+        print("=== DEBUG upload_model ===")
+        print("file.filename:", file.filename)
+        print("file.content_type:", file.content_type)
+
+        if not file or not file.filename:
+            raise HTTPException(status_code=422, detail="Файл не передан")
+
         file_bytes = await file.read()
+        if not file_bytes:
+            raise HTTPException(status_code=422, detail="Файл пустой")
+
+        # 🔹 Безопасное имя файла
+        safe_filename = file.filename or "unnamed_model.stl"
+        safe_filename = os.path.basename(safe_filename)  # убираем пути
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        key = f"models/{current_user['_id']}/{timestamp}_{file.filename}"
+        key = f"models/{current_user['_id']}/{timestamp}_{safe_filename}"
 
-        upload_to_s3(file_bytes, key, file.content_type or "application/octet-stream")
+        # 🔹 Контент-тип всегда строка
+        content_type = file.content_type if file.content_type else "application/octet-stream"
 
+        print("Generated key:", key)
+        print("Content-Type:", content_type)
+
+        # Загружаем в S3
+        upload_to_s3(file_bytes, key, content_type)
+
+        # Mongo документ
         model_doc = {
             "name": name.strip(),
             "description": description.strip(),
@@ -230,9 +253,15 @@ async def upload_model(
 
         return {"message": "Model uploaded successfully", "model_id": str(result.inserted_id)}
 
+    except HTTPException:
+        raise
     except Exception as e:
-        print("=== Upload Error ===", e)
+        import traceback
+        print("=== Upload Error ===")
+        traceback.print_exc()
+        print("=== End Error ===")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 
 @app.get("/api/models/catalog")
 async def get_catalog(skip: int = 0, limit: int = 20, category: Optional[str] = None):
