@@ -203,15 +203,24 @@ const uploadModel = async (): Promise<void> => {
       body: formData,
     });
 
-    const data = await response.json();
+    const text = await response.text();
+console.log("Server raw response:", text);
 
-    if (response.ok) {
-      Alert.alert('Успех', 'Модель успешно загружена!');
-      router.push('/catalog');
-    } else {
-      const errorMsg = getErrorMessage(data);
-      Alert.alert('Ошибка', errorMsg);
-    }
+let data: any;
+try {
+  data = JSON.parse(text);
+} catch {
+  data = { detail: text };
+}
+
+if (response.ok) {
+  Alert.alert('Успех', 'Модель успешно загружена!');
+  router.push('/catalog');
+} else {
+  const errorMsg = getErrorMessage(data);
+  Alert.alert('Ошибка', errorMsg);
+}
+
   } catch (error) {
     console.error('Upload error:', error);
     Alert.alert('Ошибка', 'Проблема с сетью. Попробуйте позже.');

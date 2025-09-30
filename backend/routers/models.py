@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from bson import ObjectId
 from server import db  # db = client.printing_service в server.py
+import traceback
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -20,6 +21,15 @@ async def upload_model(
     price: Optional[float] = Form(0),
     is_public: bool = Form(True),
 ):
+    # Лог входящих полей — полезно для отладки
+    print("=== ЗАПРОС ЗАГРУЗКИ ПОЛУЧЕН ===")
+    print("Файл (filename):", getattr(file, "filename", None))
+    print("Поля формы: ",
+          f"name={name!r}, description(len)={len(description) if description else 0},",
+          f"category={category!r}, material_type={material_type!r},",
+          f"estimated_print_time={estimated_print_time}, price={price}, is_public={is_public}")
+    print("================================")
+
     try:
         # Проверяем расширение
         file_extension = os.path.splitext(file.filename)[1].lower() if file.filename else ".stl"
@@ -34,11 +44,15 @@ async def upload_model(
         filename = f"{safe_name}_{timestamp}{file_extension}"
         filepath = os.path.join("uploads/models", filename)
 
+        # Читаем содержимое файла (async)
+        content = await file.read()
+        print(f"Размер полученного файла: {len(content)} байт")
+
         # Сохраняем файл на диск
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, "wb") as f_out:
-            content = await file.read()
             f_out.write(content)
+        print("Файл сохранён в:", filepath)
 
         # Документ для MongoDB
         model_doc = {
@@ -58,11 +72,20 @@ async def upload_model(
         }
 
         result = await db.models.insert_one(model_doc)
+        print("Модель добавлена в БД, id:", result.inserted_id)
         return {"message": "Модель успешно загружена!", "model_id": str(result.inserted_id)}
 
+    except HTTPException:
+        # если это было преднамеренное HTTP-исключение, пробрасываем дальше
+        raise
     except Exception as e:
-        print("Ошибка загрузки:", e)
-        raise HTTPException(status_code=500, detail="Ошибка загрузки: попробуйте позже")
+        # Подробный лог ошибки + traceback
+        print("=== Ошибка загрузки модели ===")
+        print("Тип:", type(e))
+        print("Сообщение:", str(e))
+        traceback.print_exc()
+        print("=== Конец ошибки ===")
+        raise HTTPException(status_code=500, detail=f"Ошибка загрузки: {str(e)}")
 
 
 @router.get("/{model_id}")

@@ -1,6 +1,5 @@
 import uvicorn
-
-from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
@@ -9,72 +8,51 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 import os
 import jwt
-from datetime import datetime, timedelta
 import bcrypt
+from datetime import datetime, timedelta
 from bson import ObjectId
+import boto3
+from botocore.exceptions import BotoCoreError, NoCredentialsError
+from io import BytesIO
 
-# Загрузка переменных окружения
+# Загрузка .env
 load_dotenv()
 
+# FastAPI app
 app = FastAPI(title="3D Printing Service API")
 
-# CORS middleware
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Разрешаем все источники для CORS
+    allow_origins=["*"],  # в проде ограничить домены
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Подключение к базе данных MongoDB
+# MongoDB
 MONGO_URL = os.getenv("MONGO_URL")
 client = AsyncIOMotorClient(MONGO_URL)
 db = client.printing_service
 
-# Безопасность
+# JWT
 security = HTTPBearer()
 JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-here")
 JWT_ALGORITHM = "HS256"
 
-# Модели данных
-class UserRegister(BaseModel):
-    name: str
-    email: EmailStr
-    password: str
-    provider: str = "email"  # email, vk, gosuslugi, yandex, google
+# AWS S3
+S3_BUCKET = os.getenv("AWS_S3_BUCKET")
+S3_REGION = os.getenv("AWS_REGION", "us-east-1")
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    region_name=S3_REGION,
+)
 
-class UserLogin(BaseModel):
-    email: EmailStr
-    password: str
-
-class User3DModel(BaseModel):
-    name: str
-    description: str
-    category: str
-    material_type: str
-    estimated_print_time: int  # в минутах
-    file_data: str  # base64 закодированные данные
-    file_format: str  # stl, obj, 3mf
-    price: Optional[float] = None
-    is_public: bool = True
-
-class PrintCalculation(BaseModel):
-    material_type: str  # PLA, ABS, PETG, и т.д.
-    print_time_hours: float
-    electricity_cost_per_hour: float = 5.0  # рубли за час
-    model_complexity: str  # simple, medium, complex
-    infill_percentage: int = 20
-    layer_height: float = 0.2
-
-class Order(BaseModel):
-    model_id: str
-    calculation: PrintCalculation
-    total_price: float
-    delivery_address: str
-    phone: str
-
-# Хелперы
+# ==========================
+# Helpers
+# ==========================
 def create_jwt_token(data: dict):
     expire = datetime.utcnow() + timedelta(hours=24)
     data.update({"exp": expire})
@@ -86,24 +64,62 @@ async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(secur
         user_id = payload.get("user_id")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-        
         user = await db.users.find_one({"_id": ObjectId(user_id)})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
-        
         return user
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
-# Роуты
+def upload_to_s3(file_bytes: bytes, filename: str, content_type: str) -> str:
+    """Загружает файл в S3 и возвращает ключ"""
+    try:
+        s3_client.upload_fileobj(
+            BytesIO(file_bytes),
+            S3_BUCKET,
+            filename,
+            ExtraArgs={"ContentType": content_type},
+        )
+        return filename
+    except (BotoCoreError, NoCredentialsError) as e:
+        print("Ошибка S3:", e)
+        raise HTTPException(status_code=500, detail="Ошибка загрузки в S3")
 
+def generate_presigned_url(key: str, expires=3600) -> str:
+    """Создает временную ссылку на S3"""
+    try:
+        return s3_client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": key},
+            ExpiresIn=expires,
+        )
+    except Exception as e:
+        print("Ошибка presigned URL:", e)
+        return None
+
+# ==========================
+# Models
+# ==========================
+class UserRegister(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    provider: str = "email"
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+# ==========================
+# Routes
+# ==========================
 @app.get("/")
 def read_root():
     return {"message": "Welcome to 3D Printing Service API!"}
@@ -112,33 +128,32 @@ def read_root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
-# Маршрут для регистрации пользователя
+# --------- Auth ---------
 @app.post("/api/auth/register")
 async def register_user(user_data: UserRegister):
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     hashed_password = hash_password(user_data.password)
-    
+
     user_doc = {
         "name": user_data.name,
         "email": user_data.email,
         "password": hashed_password,
         "provider": user_data.provider,
-        "points": 100,  # Приветственный бонус
+        "points": 100,
         "orders_count": 0,
         "models_count": 0,
         "created_at": datetime.utcnow(),
-        "is_active": True
+        "is_active": True,
     }
-    
+
     result = await db.users.insert_one(user_doc)
-    
     token = create_jwt_token({"user_id": str(result.inserted_id)})
-    
+
     return {
-        "message": "User registered successfully", 
+        "message": "User registered successfully",
         "token": token,
         "user": {
             "id": str(result.inserted_id),
@@ -146,19 +161,18 @@ async def register_user(user_data: UserRegister):
             "email": user_data.email,
             "points": 100,
             "orders_count": 0,
-            "models_count": 0
-        }
+            "models_count": 0,
+        },
     }
 
-# Маршрут для входа пользователя
 @app.post("/api/auth/login")
 async def login_user(login_data: UserLogin):
     user = await db.users.find_one({"email": login_data.email})
     if not user or not verify_password(login_data.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
     token = create_jwt_token({"user_id": str(user["_id"])})
-    
+
     return {
         "message": "Login successful",
         "token": token,
@@ -168,86 +182,95 @@ async def login_user(login_data: UserLogin):
             "email": user["email"],
             "points": user.get("points", 0),
             "orders_count": user.get("orders_count", 0),
-            "models_count": user.get("models_count", 0)
-        }
+            "models_count": user.get("models_count", 0),
+        },
     }
 
-# Маршрут для загрузки 3D моделей
+# --------- Models ---------
 @app.post("/api/models/upload")
-async def upload_3d_model(model_data: User3DModel, current_user: dict = Depends(verify_token)):
-    model_doc = {
-        "name": model_data.name,
-        "description": model_data.description,
-        "category": model_data.category,
-        "material_type": model_data.material_type,
-        "estimated_print_time": model_data.estimated_print_time,
-        "file_data": model_data.file_data,
-        "file_format": model_data.file_format,
-        "price": model_data.price,
-        "is_public": model_data.is_public,
-        "owner_id": str(current_user["_id"]),
-        "owner_name": current_user["name"],
-        "likes": 0,
-        "downloads": 0,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
-    
-    result = await db.models.insert_one(model_doc)
-    
-    await db.users.update_one(
-        {"_id": current_user["_id"]},
-        {"$inc": {"models_count": 1, "points": 50}}  # 50 points for uploading
-    )
-    
-    return {
-        "message": "Model uploaded successfully",
-        "model_id": str(result.inserted_id),
-        "points_earned": 50
-    }
+async def upload_model(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    description: str = Form(...),
+    category: str = Form(...),
+    material_type: str = Form(...),
+    estimated_print_time: float = Form(...),
+    price: Optional[float] = Form(0),
+    is_public: bool = Form(True),
+    current_user: dict = Depends(verify_token),
+):
+    try:
+        file_bytes = await file.read()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        key = f"models/{current_user['_id']}/{timestamp}_{file.filename}"
 
-# Маршрут для получения каталога моделей
+        upload_to_s3(file_bytes, key, file.content_type or "application/octet-stream")
+
+        model_doc = {
+            "name": name.strip(),
+            "description": description.strip(),
+            "category": category,
+            "material_type": material_type,
+            "estimated_print_time": estimated_print_time,
+            "price": price or 0.0,
+            "is_public": is_public,
+            "s3_key": key,
+            "created_at": datetime.utcnow(),
+            "likes": 0,
+            "downloads": 0,
+            "status": "pending",
+            "owner_id": str(current_user["_id"]),
+            "owner_name": current_user["name"],
+        }
+
+        result = await db.models.insert_one(model_doc)
+        await db.users.update_one(
+            {"_id": current_user["_id"]}, {"$inc": {"models_count": 1, "points": 50}}
+        )
+
+        return {"message": "Model uploaded successfully", "model_id": str(result.inserted_id)}
+
+    except Exception as e:
+        print("=== Upload Error ===", e)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
 @app.get("/api/models/catalog")
 async def get_catalog(skip: int = 0, limit: int = 20, category: Optional[str] = None):
     query = {"is_public": True}
     if category:
         query["category"] = category
-    
+
     models_cursor = db.models.find(query).skip(skip).limit(limit).sort("created_at", -1)
     models = await models_cursor.to_list(length=limit)
-    
+
     catalog = []
     for model in models:
-        catalog.append({
-            "id": str(model["_id"]),
-            "name": model["name"],
-            "description": model["description"],
-            "category": model["category"],
-            "material_type": model["material_type"],
-            "estimated_print_time": model["estimated_print_time"],
-            "price": model.get("price"),
-            "owner_name": model["owner_name"],
-            "likes": model.get("likes", 0),
-            "downloads": model.get("downloads", 0),
-            "created_at": model["created_at"].isoformat()
-        })
-    
-    total_count = await db.models.count_documents(query)
-    
-    return {
-        "models": catalog,
-        "total": total_count,
-        "page": skip // limit + 1,
-        "per_page": limit
-    }
+        catalog.append(
+            {
+                "id": str(model["_id"]),
+                "name": model["name"],
+                "description": model["description"],
+                "category": model["category"],
+                "material_type": model["material_type"],
+                "estimated_print_time": model["estimated_print_time"],
+                "price": model.get("price", 0),
+                "owner_name": model.get("owner_name", "Unknown"),
+                "likes": model.get("likes", 0),
+                "downloads": model.get("downloads", 0),
+                "created_at": model["created_at"].isoformat(),
+                "file_url": generate_presigned_url(model["s3_key"]),
+            }
+        )
 
-# Маршрут для получения модели по ID
+    total_count = await db.models.count_documents(query)
+    return {"models": catalog, "total": total_count, "page": skip // limit + 1, "per_page": limit}
+
 @app.get("/api/models/{model_id}")
 async def get_model_details(model_id: str):
     model = await db.models.find_one({"_id": ObjectId(model_id)})
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
-    
+
     return {
         "id": str(model["_id"]),
         "name": model["name"],
@@ -255,15 +278,16 @@ async def get_model_details(model_id: str):
         "category": model["category"],
         "material_type": model["material_type"],
         "estimated_print_time": model["estimated_print_time"],
-        "file_data": model["file_data"],
-        "file_format": model["file_format"],
         "price": model.get("price"),
-        "owner_name": model["owner_name"],
+        "owner_name": model.get("owner_name", "Unknown"),
         "likes": model.get("likes", 0),
         "downloads": model.get("downloads", 0),
-        "created_at": model["created_at"].isoformat()
+        "created_at": model["created_at"].isoformat(),
+        "file_url": generate_presigned_url(model["s3_key"]),
     }
 
-# Запуск приложения
+# ==========================
+# Run
+# ==========================
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)
