@@ -40,14 +40,19 @@ security = HTTPBearer()
 JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-here")
 JWT_ALGORITHM = "HS256"
 
-# AWS S3
-S3_BUCKET = os.getenv("AWS_S3_BUCKET")
+# S3 (AWS или Яндекс)
+S3_BUCKET = os.getenv("AWS_S3_BUCKET") or os.getenv("YC_BUCKET")
 S3_REGION = os.getenv("AWS_REGION", "us-east-1")
+
+if not S3_BUCKET:
+    raise RuntimeError("❌ Не указан S3 bucket. Добавь AWS_S3_BUCKET или YC_BUCKET в .env")
+
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     region_name=S3_REGION,
+    endpoint_url=os.getenv("AWS_ENDPOINT_URL")  # ⚡ для Яндекс Cloud
 )
 
 # ==========================
@@ -200,35 +205,14 @@ async def upload_model(
     current_user: dict = Depends(verify_token),
 ):
     try:
-        # --- DEBUG LOGS ---
-        print("=== DEBUG upload_model ===")
-        print("file.filename:", file.filename)
-        print("file.content_type:", file.content_type)
-
-        if not file or not file.filename:
-            raise HTTPException(status_code=422, detail="Файл не передан")
-
         file_bytes = await file.read()
-        if not file_bytes:
-            raise HTTPException(status_code=422, detail="Файл пустой")
-
-        # 🔹 Безопасное имя файла
-        safe_filename = file.filename or "unnamed_model.stl"
-        safe_filename = os.path.basename(safe_filename)  # убираем пути
-
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = os.path.basename(file.filename or "model.stl")
         key = f"models/{current_user['_id']}/{timestamp}_{safe_filename}"
 
-        # 🔹 Контент-тип всегда строка
-        content_type = file.content_type if file.content_type else "application/octet-stream"
-
-        print("Generated key:", key)
-        print("Content-Type:", content_type)
-
-        # Загружаем в S3
+        content_type = file.content_type or "application/octet-stream"
         upload_to_s3(file_bytes, key, content_type)
 
-        # Mongo документ
         model_doc = {
             "name": name.strip(),
             "description": description.strip(),
@@ -253,15 +237,12 @@ async def upload_model(
 
         return {"message": "Model uploaded successfully", "model_id": str(result.inserted_id)}
 
-    except HTTPException:
-        raise
     except Exception as e:
         import traceback
         print("=== Upload Error ===")
         traceback.print_exc()
         print("=== End Error ===")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
 
 @app.get("/api/models/catalog")
 async def get_catalog(skip: int = 0, limit: int = 20, category: Optional[str] = None):
