@@ -1,10 +1,10 @@
+import uvicorn
+
 from fastapi import FastAPI, HTTPException, Depends, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
-import asyncio
-import uvicorn
+from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 import os
@@ -18,13 +18,13 @@ load_dotenv()
 
 app = FastAPI(title="3D Printing Service API")
 
-# CORS middleware - разрешаем запросы с доменов, указанных в переменной окружения
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("ALLOWED_ORIGINS", "*").split(","),  # Разрешенные источники
+    allow_origins=["*"],  # Разрешаем все источники для CORS
     allow_credentials=True,
-    allow_methods=["*"],  # Разрешены все методы (GET, POST, PUT, DELETE)
-    allow_headers=["*"],  # Разрешены все заголовки
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Подключение к базе данных MongoDB
@@ -32,7 +32,7 @@ MONGO_URL = os.getenv("MONGO_URL")
 client = AsyncIOMotorClient(MONGO_URL)
 db = client.printing_service
 
-# Настройки для авторизации и безопасности
+# Безопасность
 security = HTTPBearer()
 JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-here")
 JWT_ALGORITHM = "HS256"
@@ -74,7 +74,7 @@ class Order(BaseModel):
     delivery_address: str
     phone: str
 
-# Функции для работы с токенами и паролями
+# Хелперы
 def create_jwt_token(data: dict):
     expire = datetime.utcnow() + timedelta(hours=24)
     data.update({"exp": expire})
@@ -102,7 +102,8 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
-# Маршруты FastAPI
+# Роуты
+
 @app.get("/")
 def read_root():
     return {"message": "Welcome to 3D Printing Service API!"}
@@ -111,17 +112,15 @@ def read_root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
+# Маршрут для регистрации пользователя
 @app.post("/api/auth/register")
 async def register_user(user_data: UserRegister):
-    # Проверка существования пользователя
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Хеширование пароля
     hashed_password = hash_password(user_data.password)
     
-    # Создание нового пользователя
     user_doc = {
         "name": user_data.name,
         "email": user_data.email,
@@ -136,7 +135,6 @@ async def register_user(user_data: UserRegister):
     
     result = await db.users.insert_one(user_doc)
     
-    # Генерация JWT токена
     token = create_jwt_token({"user_id": str(result.inserted_id)})
     
     return {
@@ -152,14 +150,13 @@ async def register_user(user_data: UserRegister):
         }
     }
 
+# Маршрут для входа пользователя
 @app.post("/api/auth/login")
 async def login_user(login_data: UserLogin):
-    # Поиск пользователя
     user = await db.users.find_one({"email": login_data.email})
     if not user or not verify_password(login_data.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    # Генерация JWT токена
     token = create_jwt_token({"user_id": str(user["_id"])})
     
     return {
@@ -175,6 +172,41 @@ async def login_user(login_data: UserLogin):
         }
     }
 
+# Маршрут для загрузки 3D моделей
+@app.post("/api/models/upload")
+async def upload_3d_model(model_data: User3DModel, current_user: dict = Depends(verify_token)):
+    model_doc = {
+        "name": model_data.name,
+        "description": model_data.description,
+        "category": model_data.category,
+        "material_type": model_data.material_type,
+        "estimated_print_time": model_data.estimated_print_time,
+        "file_data": model_data.file_data,
+        "file_format": model_data.file_format,
+        "price": model_data.price,
+        "is_public": model_data.is_public,
+        "owner_id": str(current_user["_id"]),
+        "owner_name": current_user["name"],
+        "likes": 0,
+        "downloads": 0,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    
+    result = await db.models.insert_one(model_doc)
+    
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$inc": {"models_count": 1, "points": 50}}  # 50 points for uploading
+    )
+    
+    return {
+        "message": "Model uploaded successfully",
+        "model_id": str(result.inserted_id),
+        "points_earned": 50
+    }
+
+# Маршрут для получения каталога моделей
 @app.get("/api/models/catalog")
 async def get_catalog(skip: int = 0, limit: int = 20, category: Optional[str] = None):
     query = {"is_public": True}
@@ -184,7 +216,6 @@ async def get_catalog(skip: int = 0, limit: int = 20, category: Optional[str] = 
     models_cursor = db.models.find(query).skip(skip).limit(limit).sort("created_at", -1)
     models = await models_cursor.to_list(length=limit)
     
-    # Преобразование ObjectId в строку и форматирование ответа
     catalog = []
     for model in models:
         catalog.append({
@@ -210,6 +241,29 @@ async def get_catalog(skip: int = 0, limit: int = 20, category: Optional[str] = 
         "per_page": limit
     }
 
-# Настройки для запуска приложения
+# Маршрут для получения модели по ID
+@app.get("/api/models/{model_id}")
+async def get_model_details(model_id: str):
+    model = await db.models.find_one({"_id": ObjectId(model_id)})
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    
+    return {
+        "id": str(model["_id"]),
+        "name": model["name"],
+        "description": model["description"],
+        "category": model["category"],
+        "material_type": model["material_type"],
+        "estimated_print_time": model["estimated_print_time"],
+        "file_data": model["file_data"],
+        "file_format": model["file_format"],
+        "price": model.get("price"),
+        "owner_name": model["owner_name"],
+        "likes": model.get("likes", 0),
+        "downloads": model.get("downloads", 0),
+        "created_at": model["created_at"].isoformat()
+    }
+
+# Запуск приложения
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

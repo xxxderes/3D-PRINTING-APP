@@ -81,10 +81,18 @@ export default function AuthScreen() {
         body: JSON.stringify(payload),
       });
 
+      // Проверяем статус ответа
+      if (!response.ok) {
+        const errorText = await response.text();  // Получаем текст ошибки
+        console.error("Server Error:", errorText);  // Выводим ошибку на консоль
+        throw new Error(errorText);  // Бросаем ошибку, чтобы она отловилась в catch
+      }
+
       const data = await response.json();
 
+      // Успешный ответ
       if (response.ok) {
-        // Save user data and token
+        // Сохраняем токен и данные пользователя
         await AsyncStorage.setItem('auth_token', data.token);
         await AsyncStorage.setItem('user_data', JSON.stringify(data.user));
         
