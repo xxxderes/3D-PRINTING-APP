@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   ScrollView,
   Alert,
   TextInput,
@@ -16,6 +15,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Переменная окружения
 const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -40,6 +41,7 @@ interface SelectedFile {
 
 export default function UploadScreen() { // Убрано : JSX.Element — фикс TS2503
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null);
   const [modelData, setModelData] = useState<ModelData>({
@@ -144,57 +146,82 @@ export default function UploadScreen() { // Убрано : JSX.Element — фи�
     return true;
   };
 
-  // Загрузка на сервер (исправлено FormData.append — устраняет ts(2769))
-  const uploadModel = async (): Promise<void> => {
-    if (!validateForm()) return;
-    setLoading(true);
-    try {
-      const token = await AsyncStorage.getItem('auth_token');
-      if (!token) {
-        Alert.alert('Ошибка', 'Необходимо войти в аккаунт');
-        router.push('/auth');
-        return;
+  // Функция для извлечения сообщения из ошибки
+  const getErrorMessage = (data: any): string => {
+    if (typeof data === 'string') return data;
+    if (data && data.detail) {
+      if (Array.isArray(data.detail)) {
+        // FastAPI-style: detail is array of {loc, msg, type}
+        return data.detail.map((err: any) => err.msg || err).join('\n');
       }
-
-      const formData = new FormData();
-      formData.append('file', {
-        uri: selectedFile!.uri,
-        name: selectedFile!.name,
-        type: `model/${selectedFile!.format.toLowerCase()}`,
-      } as any); // Добавлено as any — фикс ts(2769)
-      formData.append('name', modelData.name.trim());
-      formData.append('description', modelData.description.trim());
-      formData.append('category', modelData.category);
-      formData.append('material_type', modelData.material_type);
-      formData.append('estimated_print_time', modelData.estimated_print_time);
-      formData.append('price', modelData.price || '0');
-      formData.append('is_public', String(modelData.is_public));
-
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/models/upload`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        Alert.alert('Успех', 'Модель успешно загружена!');
-        router.push('/catalog');
-      } else {
-        Alert.alert('Ошибка', data.detail || 'Не удалось загрузить модель');
+      if (typeof data.detail === 'string') {
+        return data.detail;
       }
-    } catch {
-      Alert.alert('Ошибка', 'Проблема с сетью. Попробуйте позже.');
-    } finally {
-      setLoading(false);
+      return JSON.stringify(data.detail);
     }
+    return 'Не удалось загрузить модель';
   };
 
+// --- заменяем uploadModel --- 
+const uploadModel = async (): Promise<void> => {
+  if (!validateForm()) return;
+  setLoading(true);
+  try {
+    const token = await AsyncStorage.getItem('auth_token');
+    if (!token) {
+      Alert.alert('Ошибка', 'Необходимо войти в аккаунт');
+      router.push('/auth');
+      return;
+    }
+
+    if (!selectedFile) {
+      Alert.alert('Ошибка', 'Выберите файл модели');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', {
+      uri: selectedFile.uri,
+      name: selectedFile.name,
+      type: 'application/octet-stream', // можно уточнить по расширению
+    } as any);
+
+    formData.append('name', modelData.name.trim());
+    formData.append('description', modelData.description.trim());
+    formData.append('category', modelData.category);
+    formData.append('material_type', modelData.material_type);
+    formData.append('estimated_print_time', modelData.estimated_print_time);
+    formData.append('price', modelData.price || '0');
+    formData.append('is_public', modelData.is_public ? 'true' : 'false');
+
+    const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/models/upload`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // ВАЖНО: не ставим Content-Type вручную, fetch сам выставит boundary
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      Alert.alert('Успех', 'Модель успешно загружена!');
+      router.push('/catalog');
+    } else {
+      const errorMsg = getErrorMessage(data);
+      Alert.alert('Ошибка', errorMsg);
+    }
+  } catch (error) {
+    console.error('Upload error:', error);
+    Alert.alert('Ошибка', 'Проблема с сетью. Попробуйте позже.');
+  } finally {
+    setLoading(false);
+  }
+};
+
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -371,7 +398,7 @@ export default function UploadScreen() { // Убрано : JSX.Element — фи�
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -14,8 +14,16 @@ import {
 import { useRouter } from 'expo-router';  
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 
-const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+// Определяем тип для extra
+type ExtraType = {
+  EXPO_PUBLIC_BACKEND_URL: string;
+};
+
+// Достаём extra безопасно
+const extra = (Constants.expoConfig?.extra || {}) as ExtraType;
+const EXPO_PUBLIC_BACKEND_URL = extra.EXPO_PUBLIC_BACKEND_URL;
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -81,18 +89,15 @@ export default function AuthScreen() {
         body: JSON.stringify(payload),
       });
 
-      // Проверяем статус ответа
       if (!response.ok) {
-        const errorText = await response.text();  // Получаем текст ошибки
-        console.error("Server Error:", errorText);  // Выводим ошибку на консоль
-        throw new Error(errorText);  // Бросаем ошибку, чтобы она отловилась в catch
+        const errorText = await response.text();
+        console.error("Server Error:", errorText);
+        throw new Error(errorText);
       }
 
       const data = await response.json();
 
-      // Успешный ответ
       if (response.ok) {
-        // Сохраняем токен и данные пользователя
         await AsyncStorage.setItem('auth_token', data.token);
         await AsyncStorage.setItem('user_data', JSON.stringify(data.user));
         
@@ -149,7 +154,7 @@ export default function AuthScreen() {
               {isLogin ? 'Войдите в свой аккаунт' : 'Зарегистрируйтесь для продолжения'}
             </Text>
 
-            {/* Name field for registration */}
+            {/* Name field */}
             {!isLogin && (
               <View style={styles.inputContainer}>
                 <MaterialIcons name="person" size={20} color="#666" style={styles.inputIcon} />
@@ -193,7 +198,7 @@ export default function AuthScreen() {
               />
             </View>
 
-            {/* Confirm Password field for registration */}
+            {/* Confirm Password */}
             {!isLogin && (
               <View style={styles.inputContainer}>
                 <MaterialIcons name="lock-outline" size={20} color="#666" style={styles.inputIcon} />
@@ -220,7 +225,7 @@ export default function AuthScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Toggle Auth Mode */}
+            {/* Toggle Auth */}
             <TouchableOpacity 
               style={styles.toggleButton}
               onPress={() => setIsLogin(!isLogin)}
@@ -278,19 +283,10 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
+  container: { flex: 1, backgroundColor: '#0a0a0a' },
+  keyboardView: { flex: 1 },
+  scrollView: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -300,33 +296,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#333',
   },
-  backButton: {
-    padding: 8,
-    marginRight: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  formContainer: {
-    flex: 1,
-    padding: 24,
-    justifyContent: 'center',
-  },
-  formTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  formSubtitle: {
-    fontSize: 16,
-    color: '#888',
-    textAlign: 'center',
-    marginBottom: 32,
-  },
+  backButton: { padding: 8, marginRight: 16 },
+  headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
+  formContainer: { flex: 1, padding: 24, justifyContent: 'center' },
+  formTitle: { fontSize: 28, fontWeight: 'bold', color: '#fff', textAlign: 'center', marginBottom: 8 },
+  formSubtitle: { fontSize: 16, color: '#888', textAlign: 'center', marginBottom: 32 },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -337,15 +311,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#333',
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    height: 56,
-    color: '#fff',
-    fontSize: 16,
-  },
+  inputIcon: { marginRight: 12 },
+  input: { flex: 1, height: 56, color: '#fff', fontSize: 16 },
   submitButton: {
     backgroundColor: '#00d4ff',
     borderRadius: 12,
@@ -355,40 +322,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 24,
   },
-  submitButtonDisabled: {
-    opacity: 0.6,
-  },
-  submitButtonText: {
-    color: '#000',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  toggleButton: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  toggleText: {
-    color: '#888',
-    fontSize: 16,
-  },
-  toggleLink: {
-    color: '#00d4ff',
-    fontWeight: '600',
-  },
-  socialContainer: {
-    marginTop: 16,
-  },
-  socialTitle: {
-    color: '#888',
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  socialButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
+  submitButtonDisabled: { opacity: 0.6 },
+  submitButtonText: { color: '#000', fontSize: 18, fontWeight: '600' },
+  toggleButton: { alignItems: 'center', marginBottom: 32 },
+  toggleText: { color: '#888', fontSize: 16 },
+  toggleLink: { color: '#00d4ff', fontWeight: '600' },
+  socialContainer: { marginTop: 16 },
+  socialTitle: { color: '#888', fontSize: 16, textAlign: 'center', marginBottom: 16 },
+  socialButtons: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   socialButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -398,22 +339,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
-  googleButton: {
-    backgroundColor: '#db4437',
-  },
-  vkButton: {
-    backgroundColor: '#4c75a3',
-  },
-  yandexButton: {
-    backgroundColor: '#ffcc00',
-  },
-  gosuslugiButton: {
-    backgroundColor: '#0077ff',
-  },
-  socialButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
+  googleButton: { backgroundColor: '#db4437' },
+  vkButton: { backgroundColor: '#4c75a3' },
+  yandexButton: { backgroundColor: '#ffcc00' },
+  gosuslugiButton: { backgroundColor: '#0077ff' },
+  socialButtonText: { color: '#fff', fontSize: 14, fontWeight: '600', marginLeft: 8 },
 });
