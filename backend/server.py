@@ -268,12 +268,18 @@ async def get_catalog(skip: int = 0, limit: int = 20, category: Optional[str] = 
                 "likes": model.get("likes", 0),
                 "downloads": model.get("downloads", 0),
                 "created_at": model["created_at"].isoformat(),
-                "file_url": generate_presigned_url(model["s3_key"]),
+                "file_url": generate_presigned_url(model["s3_key"]) if "s3_key" in model else None,  # ✅
             }
         )
 
     total_count = await db.models.count_documents(query)
-    return {"models": catalog, "total": total_count, "page": skip // limit + 1, "per_page": limit}
+    return {
+        "models": catalog,
+        "total": total_count,
+        "page": skip // limit + 1,
+        "per_page": limit,
+    }
+
 
 @app.get("/api/models/{model_id}")
 async def get_model_details(model_id: str):
